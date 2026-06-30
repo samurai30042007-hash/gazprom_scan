@@ -29,6 +29,8 @@ public static class DependencyInjection
         services.AddScoped<IReportArtifactRepository, EfReportArtifactRepository>();
         services.AddScoped<IStaticFindingRepository, EfStaticFindingRepository>();
         services.AddScoped<IGitAnalyzer, LibGit2GitAnalyzer>();
+        services.AddScoped<IRepositoryProvider, GitRepositoryProvider>();
+        services.AddScoped<CodeAnalysisService>();
         services.AddScoped<ILanguageAnalyzer, RoslynLanguageAnalyzer>();
         services.AddScoped<IStaticAnalysisService, RoslynStaticAnalysisService>();
 
