@@ -4,12 +4,6 @@
 @using AIReviewSystem.Application.Abstractions.Repositories
 @using AIReviewSystem.Domain.Entities
 @using AIReviewSystem.Domain.Enums
-@inject IGitAnalyzer GitAnalyzer
-@inject IStaticAnalysisService StaticAnalysisService
-@inject IStaticFindingRepository StaticFindingRepository
-@inject IAnalysisSessionRepository AnalysisSessionRepository
-@inject IRepositoryProvider RepositoryProvider
-@inject IUnitOfWork UnitOfWork
 
 <PageTitle>AIReviewSystem | Анализ</PageTitle>
 
@@ -28,26 +22,39 @@
                             <h2 class="h5 mb-1">Параметры</h2>
                             <p class="text-body-secondary mb-0">Работает с рабочей директорией, папкой <code>.git</code> или подпапкой внутри репозитория.</p>
                         </div>
-                        <span class="badge rounded-pill text-bg-primary-subtle text-primary">Git only</span>
+                        <span class="badge rounded-pill text-bg-primary-subtle text-primary">@GetSourceBadgeLabel()</span>
                     </div>
 
                     <label for="repositoryPath" class="form-label">Источник репозитория</label>
                     <select class="form-select form-select-lg mb-3" @bind="selectedSourceKind">
                         <option value="0">Локальный путь</option>
                         <option value="1">Локальная папка</option>
-                        <option value="2">ZIP-архив (будет добавлен позже)</option>
+                        <option value="2">Папка с файлами (загрузка на сервер)</option>
                         <option value="3">Git URL (будет добавлен позже)</option>
                     </select>
 
-                    <input id="repositoryPath"
-                           class="form-control form-control-lg"
-                           placeholder="C:\\Projects\\MyRepo или https://github.com/owner/repo.git"
-                           @bind="repositoryPath"
-                           @bind:event="oninput" />
+                    @if (selectedSourceKind == (int)RepositorySourceKind.ZipArchive)
+                    {
+                        <div class="form-text mt-2">
+                            Выберите папку с файлами проекта. Браузер передаст их на сервер для анализа.
+                        </div>
+                        <InputFile class="form-control mt-3"
+                                   multiple
+                                   OnChange="OnInputFileChange"
+                                   AdditionalAttributes="@(new Dictionary<string, object> { ["webkitdirectory"] = string.Empty, ["directory"] = string.Empty, ["mozdirectory"] = string.Empty })" />
+                    }
+                    else
+                    {
+                        <input id="repositoryPath"
+                               class="form-control form-control-lg"
+                               placeholder="C:\\Projects\\MyRepo или https://github.com/owner/repo.git"
+                               @bind="repositoryPath"
+                               @bind:event="oninput" />
 
-                    <div class="form-text mt-2">
-                        В MVP поддерживается получение репозитория из локального пути или локальной папки. Архитектура уже подготовлена для расширения на ZIP и Git URL.
-                    </div>
+                        <div class="form-text mt-2">
+                            В MVP поддерживается получение репозитория из локального пути или локальной папки. Для серверной обработки можно загрузить папку с файлами проекта.
+                        </div>
+                    }
 
                     <button class="btn btn-primary btn-lg w-100 mt-4"
                             type="button"
@@ -156,153 +163,3 @@
     </div>
 </div>
 
-@code {
-    private string repositoryPath = string.Empty;
-    private int selectedSourceKind = 0;
-    private string? resolvedRepositoryPath;
-    private string? errorMessage;
-    private string? lastAnalyzedAt;
-    private bool isAnalyzing;
-    private int totalLinesAdded;
-    private int totalLinesDeleted;
-    private List<ChangeRow> rows = new();
-    private List<StaticFinding> findings = new();
-
-    private async Task AnalyzeAsync()
-    {
-        errorMessage = null;
-        resolvedRepositoryPath = null;
-        lastAnalyzedAt = null;
-        totalLinesAdded = 0;
-        totalLinesDeleted = 0;
-        rows = new List<ChangeRow>();
-        findings = new List<StaticFinding>();
-
-        string inputPath = repositoryPath.Trim();
-
-        if (string.IsNullOrWhiteSpace(inputPath))
-        {
-            errorMessage = "Укажите путь к локальному Git-репозиторию.";
-            return;
-        }
-
-        isAnalyzing = true;
-        await InvokeAsync(StateHasChanged);
-        await Task.Yield();
-
-        try
-        {
-            var request = new RepositoryRequest(inputPath, (RepositorySourceKind)selectedSourceKind);
-            var repositoryCandidate = await RepositoryProvider.ResolveAsync(request, CancellationToken.None);
-
-            var (snapshot, changedFiles) = await GitAnalyzer.AnalyzeAsync(repositoryCandidate, CancellationToken.None);
-            var session = new AnalysisSession
-            {
-                Id = Guid.NewGuid(),
-                RepositoryPath = repositoryCandidate,
-                Status = AnalysisStatus.Running,
-                StartedAt = DateTimeOffset.Now,
-                RepositorySnapshot = snapshot
-            };
-
-            session.ChangedFiles = changedFiles.ToList();
-            await AnalysisSessionRepository.AddAsync(session);
-            await UnitOfWork.SaveChangesAsync();
-
-            var csharpFiles = session.ChangedFiles.Where(item => item.IsCSharp).ToList();
-            rows = csharpFiles
-                .Select(file => new ChangeRow(file.FilePath, GetStatusLabel(ChangeKind.Modified), file.Additions, file.Deletions))
-                .ToList();
-
-            totalLinesAdded = rows.Sum(item => item.LinesAdded);
-            totalLinesDeleted = rows.Sum(item => item.LinesDeleted);
-            findings = (await StaticAnalysisService.AnalyzeAsync(session, CancellationToken.None)).ToList();
-            resolvedRepositoryPath = repositoryCandidate;
-            lastAnalyzedAt = DateTimeOffset.Now.ToString("dd.MM.yyyy HH:mm:ss");
-        }
-        catch (Exception exception)
-        {
-            errorMessage = exception.Message;
-        }
-        finally
-        {
-            isAnalyzing = false;
-        }
-    }
-
-    private static ChangeRow BuildChangeRow(TreeEntryChanges change, PatchStats patchStats)
-    {
-        string path = change.Path ?? change.OldPath ?? string.Empty;
-        string status = GetStatusLabel(change.Status);
-        ContentChangeStats? stats = patchStats[path];
-
-        return new ChangeRow(
-            path,
-            status,
-            stats?.LinesAdded ?? 0,
-            stats?.LinesDeleted ?? 0);
-    }
-
-    private static string GetStatusLabel(ChangeKind status)
-        => status switch
-        {
-            ChangeKind.Added => "Добавлен",
-            ChangeKind.Deleted => "Удалён",
-            ChangeKind.Modified => "Изменён",
-            ChangeKind.Renamed => "Переименован",
-            ChangeKind.Copied => "Скопирован",
-            ChangeKind.TypeChanged => "Смена типа",
-            ChangeKind.Conflicted => "Конфликт",
-            ChangeKind.Untracked => "Неотслеживаемый",
-            ChangeKind.Ignored => "Игнорируется",
-            _ => status.ToString()
-        };
-
-    private static string GetStatusBadgeClass(string status)
-        => status switch
-        {
-            "Добавлен" => "text-bg-success",
-            "Удалён" => "text-bg-danger",
-            "Изменён" => "text-bg-warning text-dark",
-            "Переименован" => "text-bg-info text-dark",
-            "Скопирован" => "text-bg-info text-dark",
-            "Смена типа" => "text-bg-secondary",
-            "Конфликт" => "text-bg-dark",
-            "Неотслеживаемый" => "text-bg-primary",
-            "Игнорируется" => "text-bg-secondary",
-            _ => "text-bg-secondary"
-        };
-
-    private static string GetSeverityBadgeClass(SeverityLevel severity)
-        => severity switch
-        {
-            SeverityLevel.Critical => "text-bg-danger",
-            SeverityLevel.High => "text-bg-danger",
-            SeverityLevel.Medium => "text-bg-warning text-dark",
-            SeverityLevel.Low => "text-bg-info text-dark",
-            _ => "text-bg-secondary"
-        };
-
-    private static string GetSeverityLabel(SeverityLevel severity)
-        => severity switch
-        {
-            SeverityLevel.Critical => "Critical",
-            SeverityLevel.High => "High",
-            SeverityLevel.Medium => "Medium",
-            SeverityLevel.Low => "Low",
-            _ => "Info"
-        };
-
-    private static int StatusOrder(string status)
-        => status switch
-        {
-            "Добавлен" => 0,
-            "Изменён" => 1,
-            "Удалён" => 2,
-            "Переименован" => 3,
-            "Скопирован" => 4,
-            _ => 5
-        };
-
-    private sealed record ChangeRow(string Path, string Status, int LinesAdded, int LinesDeleted);
-}
