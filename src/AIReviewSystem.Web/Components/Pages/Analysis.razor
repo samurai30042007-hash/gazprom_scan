@@ -40,9 +40,7 @@
                             Выберите папку с файлами проекта. Браузер передаст их на сервер для анализа.
                         </div>
                         <div class="mt-3">
-                            <InputFile OnChange="OnInputFileChange"
-                                       multiple
-                                       AdditionalAttributes="@(new Dictionary<string, object> { ["class"] = "form-control", ["webkitdirectory"] = string.Empty, ["directory"] = string.Empty, ["mozdirectory"] = string.Empty })" />
+                            <InputFile OnChange="OnInputFileChange" />
                         </div>
                     }
                     else
