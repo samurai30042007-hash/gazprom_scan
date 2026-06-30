@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AIReviewSystem.Application/AIReviewSystem.Application.csproj" />
+    <Project Path="src/AIReviewSystem.Contracts/AIReviewSystem.Contracts.csproj" />
+    <Project Path="src/AIReviewSystem.Domain/AIReviewSystem.Domain.csproj" />
+    <Project Path="src/AIReviewSystem.Infrastructure/AIReviewSystem.Infrastructure.csproj" />
+    <Project Path="src/AIReviewSystem.Web/AIReviewSystem.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AIReviewSystem.Tests.Integration/AIReviewSystem.Tests.Integration.csproj" />
+    <Project Path="tests/AIReviewSystem.Tests.Unit/AIReviewSystem.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

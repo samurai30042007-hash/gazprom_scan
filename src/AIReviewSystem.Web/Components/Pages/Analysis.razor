@@ -1,0 +1,260 @@
+@page "/analysis"
+
+<PageTitle>AIReviewSystem | Анализ</PageTitle>
+
+<div class="container-fluid px-0">
+    <div class="mb-4">
+        <h1 class="display-6 mb-2">Анализ репозитория</h1>
+        <p class="text-body-secondary mb-0">Первый рабочий сценарий: укажите локальный Git-репозиторий, запустите анализ и получите список изменённых файлов.</p>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-xl-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                        <div>
+                            <h2 class="h5 mb-1">Параметры</h2>
+                            <p class="text-body-secondary mb-0">Работает с рабочей директорией, папкой <code>.git</code> или подпапкой внутри репозитория.</p>
+                        </div>
+                        <span class="badge rounded-pill text-bg-primary-subtle text-primary">Git only</span>
+                    </div>
+
+                    <label for="repositoryPath" class="form-label">Путь к репозиторию</label>
+                    <input id="repositoryPath"
+                           class="form-control form-control-lg"
+                           placeholder="C:\\Projects\\MyRepo"
+                           @bind="repositoryPath"
+                           @bind:event="oninput" />
+
+                    <div class="form-text mt-2">
+                        Можно указать любую папку внутри репозитория, если `git`-корень находится выше.
+                    </div>
+
+                    <button class="btn btn-primary btn-lg w-100 mt-4"
+                            type="button"
+                            @onclick="AnalyzeAsync"
+                            disabled="@isAnalyzing">
+                        @if (isAnalyzing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                            <span>Анализирую...</span>
+                        }
+                        else
+                        {
+                            <span>Начать анализ</span>
+                        }
+                    </button>
+
+                    @if (!string.IsNullOrWhiteSpace(errorMessage))
+                    {
+                        <div class="alert alert-danger mt-4 mb-0" role="alert">
+                            @errorMessage
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(resolvedRepositoryPath))
+                    {
+                        <div class="alert alert-success mt-4 mb-0" role="status">
+                            <div class="fw-semibold">Репозиторий найден</div>
+                            <div class="small text-break">@resolvedRepositoryPath</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-8">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+                        <div>
+                            <h2 class="h5 mb-1">Результаты</h2>
+                            <p class="text-body-secondary mb-0">Список изменённых файлов с типом изменения и количеством строк.</p>
+                        </div>
+
+                        @if (rows.Count > 0)
+                        {
+                            <div class="d-flex flex-wrap gap-2">
+                                <span class="badge rounded-pill text-bg-secondary">Файлов: @rows.Count</span>
+                                <span class="badge rounded-pill text-bg-success">+@totalLinesAdded</span>
+                                <span class="badge rounded-pill text-bg-danger">-@totalLinesDeleted</span>
+                            </div>
+                        }
+                    </div>
+
+                    @if (isAnalyzing)
+                    {
+                        <div class="text-center py-5 text-body-secondary">
+                            <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>
+                            <div>Считываем Git-изменения и считаем строки...</div>
+                        </div>
+                    }
+                    else if (rows.Count == 0)
+                    {
+                        <div class="border rounded-4 bg-body-tertiary p-4 p-lg-5 text-body-secondary">
+                            <h3 class="h6 text-body mb-2">Пока нет данных</h3>
+                            <p class="mb-0">Запустите анализ, чтобы увидеть изменённые файлы и сводку по строкам.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Файл</th>
+                                        <th scope="col">Статус</th>
+                                        <th scope="col" class="text-end">+</th>
+                                        <th scope="col" class="text-end">-</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in rows)
+                                    {
+                                        <tr>
+                                            <td class="text-break">@row.Path</td>
+                                            <td>
+                                                <span class="badge rounded-pill @GetStatusBadgeClass(row.Status)">@row.Status</span>
+                                            </td>
+                                            <td class="text-end text-success fw-semibold">@row.LinesAdded</td>
+                                            <td class="text-end text-danger fw-semibold">@row.LinesDeleted</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(lastAnalyzedAt))
+                        {
+                            <div class="small text-body-secondary mt-3">Последнее обновление: @lastAnalyzedAt</div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string repositoryPath = string.Empty;
+    private string? resolvedRepositoryPath;
+    private string? errorMessage;
+    private string? lastAnalyzedAt;
+    private bool isAnalyzing;
+    private int totalLinesAdded;
+    private int totalLinesDeleted;
+    private List<ChangeRow> rows = new();
+
+    private async Task AnalyzeAsync()
+    {
+        errorMessage = null;
+        resolvedRepositoryPath = null;
+        lastAnalyzedAt = null;
+        totalLinesAdded = 0;
+        totalLinesDeleted = 0;
+        rows = new List<ChangeRow>();
+
+        string inputPath = repositoryPath.Trim();
+
+        if (string.IsNullOrWhiteSpace(inputPath))
+        {
+            errorMessage = "Укажите путь к локальному Git-репозиторию.";
+            return;
+        }
+
+        isAnalyzing = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
+
+        try
+        {
+            string repositoryCandidate = Repository.Discover(inputPath) ?? inputPath;
+
+            if (!Repository.IsValid(repositoryCandidate))
+            {
+                errorMessage = "Не удалось найти валидный Git-репозиторий по указанному пути.";
+                return;
+            }
+
+            using var repo = new Repository(repositoryCandidate);
+            using var treeChanges = repo.Diff.Compare<TreeChanges>();
+            using var patchStats = repo.Diff.Compare<PatchStats>();
+
+            rows = treeChanges
+                .Select(change => BuildChangeRow(change, patchStats))
+                .OrderBy(row => StatusOrder(row.Status))
+                .ThenBy(row => row.Path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            totalLinesAdded = patchStats.TotalLinesAdded;
+            totalLinesDeleted = patchStats.TotalLinesDeleted;
+            resolvedRepositoryPath = repo.Info.WorkingDirectory ?? repo.Info.Path ?? repositoryCandidate;
+            lastAnalyzedAt = DateTimeOffset.Now.ToString("dd.MM.yyyy HH:mm:ss");
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isAnalyzing = false;
+        }
+    }
+
+    private static ChangeRow BuildChangeRow(TreeEntryChanges change, PatchStats patchStats)
+    {
+        string path = change.Path ?? change.OldPath ?? string.Empty;
+        string status = GetStatusLabel(change.Status);
+        ContentChangeStats? stats = patchStats[path];
+
+        return new ChangeRow(
+            path,
+            status,
+            stats?.LinesAdded ?? 0,
+            stats?.LinesDeleted ?? 0);
+    }
+
+    private static string GetStatusLabel(ChangeKind status)
+        => status switch
+        {
+            ChangeKind.Added => "Добавлен",
+            ChangeKind.Deleted => "Удалён",
+            ChangeKind.Modified => "Изменён",
+            ChangeKind.Renamed => "Переименован",
+            ChangeKind.Copied => "Скопирован",
+            ChangeKind.TypeChanged => "Смена типа",
+            ChangeKind.Conflicted => "Конфликт",
+            ChangeKind.Untracked => "Неотслеживаемый",
+            ChangeKind.Ignored => "Игнорируется",
+            _ => status.ToString()
+        };
+
+    private static string GetStatusBadgeClass(string status)
+        => status switch
+        {
+            "Добавлен" => "text-bg-success",
+            "Удалён" => "text-bg-danger",
+            "Изменён" => "text-bg-warning text-dark",
+            "Переименован" => "text-bg-info text-dark",
+            "Скопирован" => "text-bg-info text-dark",
+            "Смена типа" => "text-bg-secondary",
+            "Конфликт" => "text-bg-dark",
+            "Неотслеживаемый" => "text-bg-primary",
+            "Игнорируется" => "text-bg-secondary",
+            _ => "text-bg-secondary"
+        };
+
+    private static int StatusOrder(string status)
+        => status switch
+        {
+            "Добавлен" => 0,
+            "Изменён" => 1,
+            "Удалён" => 2,
+            "Переименован" => 3,
+            "Скопирован" => 4,
+            _ => 5
+        };
+
+    private sealed record ChangeRow(string Path, string Status, int LinesAdded, int LinesDeleted);
+}
