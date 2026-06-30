@@ -37,10 +37,11 @@
                     @if (selectedSourceKind == (int)RepositorySourceKind.ZipArchive)
                     {
                         <div class="form-text mt-2">
-                            Выберите папку с файлами проекта. Браузер передаст их на сервер для анализа.
+                            Можно выбрать целую папку с проектом. Все файлы будут загружены на сервер и проанализированы.
                         </div>
                         <div class="mt-3">
-                            <InputFile OnChange="OnInputFileChange" />
+                            <InputFile OnChange="OnInputFileChange"
+                                       AdditionalAttributes="@(new Dictionary<string, object> { ["multiple"] = true, ["webkitdirectory"] = string.Empty, ["directory"] = string.Empty, ["mozdirectory"] = string.Empty })" />
                         </div>
                     }
                     else

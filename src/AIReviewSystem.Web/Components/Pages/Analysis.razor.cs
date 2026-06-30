@@ -61,7 +61,15 @@ public partial class Analysis : ComponentBase
 
                 foreach (var file in uploadedFiles)
                 {
-                    var targetPath = Path.Combine(tempDirectory, file.Name);
+                    var relativePath = file.Name.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+                    var targetPath = Path.Combine(tempDirectory, relativePath);
+                    var targetDirectory = Path.GetDirectoryName(targetPath);
+
+                    if (!string.IsNullOrWhiteSpace(targetDirectory))
+                    {
+                        Directory.CreateDirectory(targetDirectory);
+                    }
+
                     await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
                     await using var targetStream = File.Create(targetPath);
                     await stream.CopyToAsync(targetStream);
@@ -75,8 +83,7 @@ public partial class Analysis : ComponentBase
                     StartedAt = DateTimeOffset.Now
                 };
 
-                await AnalysisSessionRepository.AddAsync(analysisSession);
-                await UnitOfWork.SaveChangesAsync();
+                await PersistAnalysisSessionAsync(analysisSession);
 
                 findings = (await CodeAnalysisService.AnalyzeWorkspaceAsync(tempDirectory, analysisSession.Id, CancellationToken.None)).ToList();
                 rows = findings
@@ -109,8 +116,7 @@ public partial class Analysis : ComponentBase
             };
 
             session.ChangedFiles = changedFiles.ToList();
-            await AnalysisSessionRepository.AddAsync(session);
-            await UnitOfWork.SaveChangesAsync();
+            await PersistAnalysisSessionAsync(session);
 
             var csharpFiles = session.ChangedFiles.Where(item => item.IsCSharp).ToList();
             rows = csharpFiles
@@ -137,6 +143,19 @@ public partial class Analysis : ComponentBase
     private void OnInputFileChange(InputFileChangeEventArgs args)
     {
         uploadedFiles = args.GetMultipleFiles();
+    }
+
+    private async Task PersistAnalysisSessionAsync(AnalysisSession session)
+    {
+        try
+        {
+            await AnalysisSessionRepository.AddAsync(session);
+            await UnitOfWork.SaveChangesAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Не удалось сохранить сеанс анализа в БД; продолжаю без сохранения");
+        }
     }
 
     private static string GetSourceBadgeLabel()
