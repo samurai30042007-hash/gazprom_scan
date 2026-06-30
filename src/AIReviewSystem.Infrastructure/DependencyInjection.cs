@@ -1,5 +1,7 @@
 using AIReviewSystem.Application.Abstractions;
+using AIReviewSystem.Application.Abstractions.Analysis;
 using AIReviewSystem.Application.Abstractions.Repositories;
+using AIReviewSystem.Infrastructure.Analysis;
 using AIReviewSystem.Infrastructure.Persistence;
 using AIReviewSystem.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +28,9 @@ public static class DependencyInjection
         services.AddScoped<IAnalysisSessionRepository, EfAnalysisSessionRepository>();
         services.AddScoped<IReportArtifactRepository, EfReportArtifactRepository>();
         services.AddScoped<IStaticFindingRepository, EfStaticFindingRepository>();
+        services.AddScoped<IGitAnalyzer, LibGit2GitAnalyzer>();
+        services.AddScoped<ILanguageAnalyzer, RoslynLanguageAnalyzer>();
+        services.AddScoped<IStaticAnalysisService, RoslynStaticAnalysisService>();
 
         return services;
     }

@@ -18,6 +18,8 @@ public sealed class StaticFinding
 
     public int? Line { get; set; }
 
+    public int? Column { get; set; }
+
     public string AnalyzerName { get; set; } = string.Empty;
 
     public AnalysisSession? AnalysisSession { get; set; }

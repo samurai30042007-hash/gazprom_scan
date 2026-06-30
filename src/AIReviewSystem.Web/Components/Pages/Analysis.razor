@@ -1,4 +1,14 @@
 @page "/analysis"
+@using AIReviewSystem.Application.Abstractions
+@using AIReviewSystem.Application.Abstractions.Analysis
+@using AIReviewSystem.Application.Abstractions.Repositories
+@using AIReviewSystem.Domain.Entities
+@using AIReviewSystem.Domain.Enums
+@inject IGitAnalyzer GitAnalyzer
+@inject IStaticAnalysisService StaticAnalysisService
+@inject IStaticFindingRepository StaticFindingRepository
+@inject IAnalysisSessionRepository AnalysisSessionRepository
+@inject IUnitOfWork UnitOfWork
 
 <PageTitle>AIReviewSystem | Анализ</PageTitle>
 
@@ -103,22 +113,24 @@
                             <table class="table align-middle mb-0">
                                 <thead>
                                     <tr>
-                                        <th scope="col">Файл</th>
-                                        <th scope="col">Статус</th>
-                                        <th scope="col" class="text-end">+</th>
-                                        <th scope="col" class="text-end">-</th>
+                                        <th scope="col">Severity</th>
+                                        <th scope="col">Diagnostic ID</th>
+                                        <th scope="col">Message</th>
+                                        <th scope="col">File</th>
+                                        <th scope="col">Line</th>
+                                        <th scope="col">Column</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var row in rows)
+                                    @foreach (var finding in findings)
                                     {
                                         <tr>
-                                            <td class="text-break">@row.Path</td>
-                                            <td>
-                                                <span class="badge rounded-pill @GetStatusBadgeClass(row.Status)">@row.Status</span>
-                                            </td>
-                                            <td class="text-end text-success fw-semibold">@row.LinesAdded</td>
-                                            <td class="text-end text-danger fw-semibold">@row.LinesDeleted</td>
+                                            <td><span class="badge rounded-pill @GetSeverityBadgeClass(finding.Severity)">@GetSeverityLabel(finding.Severity)</span></td>
+                                            <td class="fw-semibold">@finding.RuleId</td>
+                                            <td class="text-break">@finding.Message</td>
+                                            <td class="text-break">@finding.FilePath</td>
+                                            <td>@finding.Line</td>
+                                            <td>@(finding.Column ?? 0)</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -145,6 +157,7 @@
     private int totalLinesAdded;
     private int totalLinesDeleted;
     private List<ChangeRow> rows = new();
+    private List<StaticFinding> findings = new();
 
     private async Task AnalyzeAsync()
     {
@@ -154,6 +167,7 @@
         totalLinesAdded = 0;
         totalLinesDeleted = 0;
         rows = new List<ChangeRow>();
+        findings = new List<StaticFinding>();
 
         string inputPath = repositoryPath.Trim();
 
@@ -177,19 +191,29 @@
                 return;
             }
 
-            using var repo = new Repository(repositoryCandidate);
-            using var treeChanges = repo.Diff.Compare<TreeChanges>();
-            using var patchStats = repo.Diff.Compare<PatchStats>();
+            var (snapshot, changedFiles) = await GitAnalyzer.AnalyzeAsync(repositoryCandidate, CancellationToken.None);
+            var session = new AnalysisSession
+            {
+                Id = Guid.NewGuid(),
+                RepositoryPath = repositoryCandidate,
+                Status = AnalysisStatus.Running,
+                StartedAt = DateTimeOffset.Now,
+                RepositorySnapshot = snapshot
+            };
 
-            rows = treeChanges
-                .Select(change => BuildChangeRow(change, patchStats))
-                .OrderBy(row => StatusOrder(row.Status))
-                .ThenBy(row => row.Path, StringComparer.OrdinalIgnoreCase)
+            session.ChangedFiles = changedFiles.ToList();
+            await AnalysisSessionRepository.AddAsync(session);
+            await UnitOfWork.SaveChangesAsync();
+
+            var csharpFiles = session.ChangedFiles.Where(item => item.IsCSharp).ToList();
+            rows = csharpFiles
+                .Select(file => new ChangeRow(file.FilePath, GetStatusLabel(ChangeKind.Modified), file.Additions, file.Deletions))
                 .ToList();
 
-            totalLinesAdded = patchStats.TotalLinesAdded;
-            totalLinesDeleted = patchStats.TotalLinesDeleted;
-            resolvedRepositoryPath = repo.Info.WorkingDirectory ?? repo.Info.Path ?? repositoryCandidate;
+            totalLinesAdded = rows.Sum(item => item.LinesAdded);
+            totalLinesDeleted = rows.Sum(item => item.LinesDeleted);
+            findings = (await StaticAnalysisService.AnalyzeAsync(session, CancellationToken.None)).ToList();
+            resolvedRepositoryPath = repositoryCandidate;
             lastAnalyzedAt = DateTimeOffset.Now.ToString("dd.MM.yyyy HH:mm:ss");
         }
         catch (Exception exception)
@@ -243,6 +267,26 @@
             "Неотслеживаемый" => "text-bg-primary",
             "Игнорируется" => "text-bg-secondary",
             _ => "text-bg-secondary"
+        };
+
+    private static string GetSeverityBadgeClass(SeverityLevel severity)
+        => severity switch
+        {
+            SeverityLevel.Critical => "text-bg-danger",
+            SeverityLevel.High => "text-bg-danger",
+            SeverityLevel.Medium => "text-bg-warning text-dark",
+            SeverityLevel.Low => "text-bg-info text-dark",
+            _ => "text-bg-secondary"
+        };
+
+    private static string GetSeverityLabel(SeverityLevel severity)
+        => severity switch
+        {
+            SeverityLevel.Critical => "Critical",
+            SeverityLevel.High => "High",
+            SeverityLevel.Medium => "Medium",
+            SeverityLevel.Low => "Low",
+            _ => "Info"
         };
 
     private static int StatusOrder(string status)

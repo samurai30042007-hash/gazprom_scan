@@ -65,6 +65,7 @@ public sealed class ReviewDbContext : DbContext
             builder.Property(item => item.FilePath).HasMaxLength(1024).IsRequired();
             builder.Property(item => item.AnalyzerName).HasMaxLength(128).IsRequired();
             builder.Property(item => item.Severity).IsRequired();
+            builder.Property(item => item.Column);
             builder.HasOne(item => item.AnalysisSession)
                 .WithMany(item => item.StaticFindings)
                 .HasForeignKey(item => item.AnalysisSessionId)
