@@ -142,7 +142,7 @@ public partial class Analysis : ComponentBase
 
     private void OnInputFileChange(InputFileChangeEventArgs args)
     {
-        uploadedFiles = args.GetMultipleFiles();
+        uploadedFiles = args.GetMultipleFiles(1000);
     }
 
     private async Task PersistAnalysisSessionAsync(AnalysisSession session)
